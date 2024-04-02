@@ -208,7 +208,7 @@ class JsonSQL():
                 return False, f"{item} not right type, {required_inputs[item]}"
             
         if json_input["query"] not in self.ALLOWED_QUERIES:
-            return False, f"Query not allowed - {json_input["query"]}"
+            return False, f"Query not allowed - {json_input['query']}"
         
         if json_input["table"] not in self.ALLOWED_TABLES:
             return False, f"Table not allowed - {json_input['table']}"   
@@ -220,7 +220,7 @@ class JsonSQL():
             elif isinstance(requested_item, dict) and list(requested_item)[0] in self.AGGREGATES:
                 sub_requested_item = requested_item[list(requested_item)[0]]
                 if sub_requested_item in self.ALLOWED_ITEMS or sub_requested_item in self.ALLOWED_TABLES[json_input["table"]]:
-                    requested_item = f"{list(requested_item)[0]}({sub_requested_item})"
+                    json_input["items"][item] = f"{list(requested_item)[0]}({sub_requested_item})"
                 else:
                     return False, f"Item not allowed - {sub_requested_item}"
 
