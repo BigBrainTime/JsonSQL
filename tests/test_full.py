@@ -39,7 +39,7 @@ def test_bad_query(jsonsql: JsonSQL):
 def test_bad_item(jsonsql: JsonSQL):
     jsonsql.ALLOWED_QUERIES = ["SELECT"]
     jsonsql.ALLOWED_ITEMS = ["good"]
-    jsonsql.ALLOWED_TABLES = ["table1"]
+    jsonsql.ALLOWED_TABLES = {"table1":[None]}
     jsonsql.ALLOWED_CONNECTIONS = ["WHERE"]
     input = {
         "query": "SELECT",
@@ -97,10 +97,21 @@ def test_valid_sql_with_logic(jsonsql: JsonSQL):
 def test_valid_sql_without_logic_with_aggregate_table(jsonsql: JsonSQL):
     jsonsql.ALLOWED_QUERIES = ["SELECT"]
     jsonsql.ALLOWED_ITEMS = ["column"]
-    jsonsql.ALLOWED_TABLES = ["table1"]
+    jsonsql.ALLOWED_TABLES = {"table1": [None]}
     input = {"query": "SELECT", "items": [
         {"MIN": "column"}], "table": "table1"}
     result, sql, params = jsonsql.sql_parse(input)
     assert result is True
     assert sql == "SELECT MIN(column) FROM table1"
+    assert params == ()
+
+
+def test_valid_sql_dict_tables(jsonsql: JsonSQL):
+    jsonsql.ALLOWED_QUERIES = ["SELECT"]
+    jsonsql.ALLOWED_TABLES = {"table1": ["col1"], "table2": ["col2"]}
+    input = {"query": "SELECT", "items": ["col1"], "table": "table1"}
+    print(jsonsql.sql_parse(input))
+    result, sql, params = jsonsql.sql_parse(input)
+    assert result is True
+    assert sql == "SELECT col1 FROM table1"
     assert params == ()

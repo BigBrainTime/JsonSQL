@@ -1,7 +1,7 @@
 from typing import Literal
 
 class JsonSQL():
-    def __init__(self, allowed_queries: list=[], allowed_items: list=[], allowed_tables: list=[], allowed_connections: list=[], allowed_columns: dict={}):
+    def __init__(self, allowed_queries: list=[], allowed_items: list=[], allowed_tables: list=[], allowed_connections: list=[], allowed_columns: dict[str:type]={}):
         """Initializes JsonSQL instance with allowed queries, items, tables, 
         connections, and columns.
         
@@ -12,9 +12,20 @@ class JsonSQL():
         allowed_connections (list): Allowed SQL JOIN conditions.
         allowed_columns (dict): Allowed columns per table.
         """
+        table_dict = {}
+        for table in allowed_tables:
+            if isinstance(table, dict) and isinstance(table[list(table)[0]],list):
+                table_dict[list(table)[0]] = table[list(table)[0]]
+            elif isinstance(table, dict) and not isinstance(allowed_tables[table], list):
+                raise TypeError(f"Table {table} items must be a list")
+            elif isinstance(table, str):
+                table_dict[table]=[None]
+            else:
+                raise TypeError(f"{table} not str or dict")
+
         self.ALLOWED_QUERIES = allowed_queries
         self.ALLOWED_ITEMS = allowed_items
-        self.ALLOWED_TABLES = allowed_tables
+        self.ALLOWED_TABLES = table_dict
         self.ALLOWED_CONNECTIONS = allowed_connections
         self.ALLOWED_COLUMNS = allowed_columns
 
@@ -198,19 +209,20 @@ class JsonSQL():
             
         if json_input["query"] not in self.ALLOWED_QUERIES:
             return False, f"Query not allowed - {json_input["query"]}"
+        
+        if json_input["table"] not in self.ALLOWED_TABLES:
+            return False, f"Table not allowed - {json_input['table']}"   
 
         for item in range(len(json_input["items"])):
-            if json_input["items"][item] not in self.ALLOWED_ITEMS and not (isinstance(json_input["items"][item], dict) and list(json_input["items"][item])[0] in self.AGGREGATES):
-                return False, f"Item not allowed - {json_input["items"][item]}"
-            elif isinstance(json_input["items"][item], dict) and list(json_input["items"][item])[0] in self.AGGREGATES:
-                if json_input["items"][item][list(json_input["items"][item])[0]] in self.ALLOWED_ITEMS:
-                    json_input["items"][item] = f"{list(json_input["items"][item])[0]}({json_input["items"][item][list(json_input["items"][item])[0]]})"
+            requested_item = json_input["items"][item]
+            if requested_item not in self.ALLOWED_ITEMS and requested_item not in self.ALLOWED_TABLES[json_input["table"]] and not (isinstance(requested_item, dict) and list(requested_item)[0] in self.AGGREGATES):
+                return False, f"Item not allowed - {requested_item}"
+            elif isinstance(requested_item, dict) and list(requested_item)[0] in self.AGGREGATES:
+                sub_requested_item = requested_item[list(requested_item)[0]]
+                if sub_requested_item in self.ALLOWED_ITEMS or sub_requested_item in self.ALLOWED_TABLES[json_input["table"]]:
+                    requested_item = f"{list(requested_item)[0]}({sub_requested_item})"
                 else:
-                    return False, f"Item not allowed - {json_input["items"][item][list(json_input["items"][item])[0]]}"
-
-               
-        if json_input["table"] not in self.ALLOWED_TABLES:
-            return False, f"Table not allowed - {json_input['table']}"        
+                    return False, f"Item not allowed - {sub_requested_item}"
 
         
         if "connection" in json_input and json_input["connection"] not in self.ALLOWED_CONNECTIONS:

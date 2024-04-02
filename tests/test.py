@@ -32,7 +32,7 @@ request3 = {"creature": {"=": "owlbear"}}
 
 request4 = {
     "query": "SELECT",
-    "items": [{"COUNT":"creature"}],
+    "items": [{"COUNT": "userID"}],
     "table": "images",
     "connection": "WHERE",
     "logic": {"userID": {"=": {"MIN":"userID"}}},
@@ -52,7 +52,7 @@ allowed_connections = [
 ]
 
 allowed_tables = [
-    "images"
+    {"images":["userID"]}
 ]
 
 allowed_columns = {
