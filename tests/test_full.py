@@ -1,5 +1,5 @@
 import pytest
-from jsonsql import JsonSQL
+from src.jsonsql import JsonSQL
 
 
 @pytest.fixture
