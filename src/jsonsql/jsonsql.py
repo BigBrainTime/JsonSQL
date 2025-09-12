@@ -497,38 +497,38 @@ class JsonSQL:
 
         # Enhanced item validation combining both approaches
         for index, item in enumerate(json_input["items"]):
-            # Check if the item is allowed using our enhanced system first
-            if not self._is_entity_allowed(
-                item if isinstance(item, str) else str(item),
-                self.ALLOWED_ITEMS,
-                self.NOT_ALLOWED_ITEMS
-            ):
-                # Special case for aggregate functions (dev branch logic)
-                if isinstance(item, dict) and list(item)[0] in self.AGGREGATES:
-                    aggregate_function = list(item)[0]
-                    aggregate_argument = item[aggregate_function]
-                    
-                    # Check if the aggregate argument is allowed using enhanced system
-                    if not self._is_entity_allowed(
-                        aggregate_argument,
-                        self.ALLOWED_ITEMS,
-                        self.NOT_ALLOWED_ITEMS
-                    ):
-                        # Fallback to dev branch table-specific logic
-                        if (json_input["table"] in self.ALLOWED_TABLES and 
-                            aggregate_argument in self.ALLOWED_TABLES[json_input["table"]]):
-                            # Update the item with the aggregate function
-                            json_input["items"][index] = (
-                                f"{aggregate_function}({aggregate_argument})"
-                            )
-                        else:
-                            return False, f"Item not allowed - {aggregate_argument}"
-                    else:
+            # Special case for aggregate functions - handle them first
+            if isinstance(item, dict) and list(item)[0] in self.AGGREGATES:
+                aggregate_function = list(item)[0]
+                aggregate_argument = item[aggregate_function]
+                
+                # Check if the aggregate argument is allowed using enhanced system
+                if not self._is_entity_allowed(
+                    aggregate_argument,
+                    self.ALLOWED_ITEMS,
+                    self.NOT_ALLOWED_ITEMS
+                ):
+                    # Fallback to dev branch table-specific logic
+                    if (json_input["table"] in self.ALLOWED_TABLES and 
+                        aggregate_argument in self.ALLOWED_TABLES[json_input["table"]]):
                         # Update the item with the aggregate function
                         json_input["items"][index] = (
                             f"{aggregate_function}({aggregate_argument})"
                         )
+                    else:
+                        return False, f"Item not allowed - {aggregate_argument}"
                 else:
+                    # Update the item with the aggregate function
+                    json_input["items"][index] = (
+                        f"{aggregate_function}({aggregate_argument})"
+                    )
+            else:
+                # Check if the item is allowed using our enhanced system
+                if not self._is_entity_allowed(
+                    item,
+                    self.ALLOWED_ITEMS,
+                    self.NOT_ALLOWED_ITEMS
+                ):
                     # Fallback to dev branch table-specific logic for non-aggregates
                     if (json_input["table"] in self.ALLOWED_TABLES and 
                         item in self.ALLOWED_TABLES[json_input["table"]]):
