@@ -22,7 +22,7 @@ Initialize it by passing allowed queries, items, tables, connections and column 
 
 ```python
 allowed_queries = ["SELECT"]
-allowed_items = ["*"] 
+allowed_items = ["*"]
 allowed_tables = ["users"]
 allowed_connections = ["WHERE"]
 allowed_columns = {"id": int, "name": str}
@@ -30,16 +30,52 @@ allowed_columns = {"id": int, "name": str}
 jsonsql = JsonSQL(allowed_queries, allowed_items, allowed_tables, allowed_connections, allowed_columns)
 ```
 
+For more flexible permissions, you can use wildcards and blacklists:
+
+```python
+# Use ["*"] to allow all entities of a specific type
+jsonsql = JsonSQL(
+    allowed_queries=["*"],        # Allow any query type
+    allowed_items=["*"],          # Allow any column/item
+    allowed_tables=["*"],         # Allow any table
+    allowed_connections=["*"],    # Allow any connection type
+    allowed_columns={"*": object} # Allow any column with any type
+)
+
+# Use not_allowed_* parameters to explicitly forbid specific entities
+jsonsql = JsonSQL(
+    allowed_queries=["*"],
+    allowed_items=["*"],
+    allowed_tables=["*"],
+    allowed_connections=["*"],
+    allowed_columns={"*": object},
+    not_allowed_tables=["app_secrets", "user_metadata"],     # Blacklist sensitive tables
+    not_allowed_items=["password", "secret_key"],            # Blacklist sensitive columns
+    not_allowed_queries=["DROP", "DELETE"]                   # Blacklist dangerous operations
+)
+
+# Mix explicit permissions with wildcards and blacklists
+jsonsql = JsonSQL(
+    allowed_queries=["SELECT", "INSERT"],
+    allowed_items=["name", "email", "age"],
+    allowed_tables=["*"],                    # Allow all tables
+    allowed_connections=["WHERE"],
+    allowed_columns={"name": str, "email": str, "age": int},
+    not_allowed_tables=["admin_users"],      # But not this table
+    not_allowed_items=["password"]           # And not this item (overrides allowed_items)
+)
+```
+
 Pass a JSON request to sql_parse() to validate and construct the SQL:
 
 ```python
 request = {
-  "query": "SELECT", 
+  "query": "SELECT",
   "items": ["*"],
   "table": "users",
   "connection": "WHERE",
   "logic": {
-    "id": {"=":123} 
+    "id": {"=":123}
   }
 }
 
@@ -47,6 +83,14 @@ valid, sql, params = jsonsql.sql_parse(request)
 ```
 
 The logic is validated against the allowed columns before constructing the final SQL string.
+
+The validation system follows this priority order:
+
+1. **Blacklist Check**: If entity is in `not_allowed_*` list → **DENY** (highest priority)
+2. **Strict Mode**: If `allowed_*` list is empty → **DENY** (secure by default)
+3. **Wildcard Mode**: If `allowed_*` contains `"*"` → **ALLOW** (unless blacklisted)
+4. **Explicit Allow**: If entity is in `allowed_*` list → **ALLOW**
+5. **Default**: Otherwise → **DENY**
 
 ### Search Criteria for partial string
 
@@ -94,11 +138,11 @@ Note: variables do mean columns in the way i am using them
 values can also be valid variables such that `variable1 = variable2`
 
 ```json
-{"variable":{"=":"othervariable"}}
+{ "variable": { "=": "othervariable" } }
 ```
 
 SQL aggregations can also be used
 
 ```json
-{"variable":{"=":{"MIN":"variable"}}}
+{ "variable": { "=": { "MIN": "variable" } } }
 ```
