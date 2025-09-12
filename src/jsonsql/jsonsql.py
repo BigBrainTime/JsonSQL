@@ -1,163 +1,331 @@
-from typing import Literal
+from typing import Dict, List, Literal
+
 
 class JsonSQL():
-    def __init__(self, allowed_queries: list=[], allowed_items: list=[], allowed_tables: list=[], allowed_connections: list=[], allowed_columns: dict={}):
-        """Initializes JsonSQL instance with allowed queries, items, tables, 
-        connections, and columns.
-        
+    def __init__(
+        self,
+        allowed_queries: List[str] = None,
+        allowed_items: List[str] = None,
+        allowed_tables: List[str] = None,
+        allowed_connections: List[str] = None,
+        allowed_columns: Dict[str, type] = None,
+        not_allowed_queries: List[str] = None,
+        not_allowed_items: List[str] = None,
+        not_allowed_tables: List[str] = None,
+        not_allowed_connections: List[str] = None,
+        not_allowed_columns: List[str] = None
+    ):
+        """Initializes JsonSQL instance with allowed/not_allowed queries, items,
+        tables, connections, and columns.
+
         Args:
-        allowed_queries (list): Allowed SQL query strings. 
-        allowed_items (list): Allowed SQL SELECT fields.
-        allowed_tables (list): Allowed SQL FROM tables.
-        allowed_connections (list): Allowed SQL JOIN conditions.
-        allowed_columns (dict): Allowed columns per table.
+            allowed_queries (List[str], optional): Allowed SQL query strings.
+                Use ["*"] to allow all. Defaults to [] (strict mode).
+            allowed_items (List[str], optional): Allowed SQL SELECT fields.
+                Use ["*"] to allow all. Defaults to [] (strict mode).
+            allowed_tables (List[str], optional): Allowed SQL FROM tables.
+                Use ["*"] to allow all. Defaults to [] (strict mode).
+            allowed_connections (List[str], optional): Allowed SQL JOIN conditions.
+                Use ["*"] to allow all. Defaults to [] (strict mode).
+            allowed_columns (Dict[str, type], optional): Allowed columns per table.
+                Use {"*": object} to allow all. Defaults to {} (strict mode).
+            not_allowed_queries (List[str], optional): Explicitly forbidden queries.
+                Takes precedence over allowed_queries. Defaults to [].
+            not_allowed_items (List[str], optional): Explicitly forbidden items.
+                Takes precedence over allowed_items. Defaults to [].
+            not_allowed_tables (List[str], optional): Explicitly forbidden tables.
+                Takes precedence over allowed_tables. Defaults to [].
+            not_allowed_connections (List[str], optional): Explicitly forbidden connections.
+                Takes precedence over allowed_connections. Defaults to [].
+            not_allowed_columns (List[str], optional): Explicitly forbidden columns.
+                Takes precedence over allowed_columns. Defaults to [].
         """
-        self.ALLOWED_QUERIES = allowed_queries
-        self.ALLOWED_ITEMS = allowed_items
-        self.ALLOWED_TABLES = allowed_tables
-        self.ALLOWED_CONNECTIONS = allowed_connections
-        self.ALLOWED_COLUMNS = allowed_columns
+        # Initialize allowed lists with default empty lists for strict mode
+        self.ALLOWED_QUERIES = allowed_queries if allowed_queries is not None else []
+        self.ALLOWED_ITEMS = allowed_items if allowed_items is not None else []
+        self.ALLOWED_TABLES = allowed_tables if allowed_tables is not None else []
+        self.ALLOWED_CONNECTIONS = allowed_connections if allowed_connections is not None else []
+        self.ALLOWED_COLUMNS = allowed_columns if allowed_columns is not None else {}
+
+        # Initialize not_allowed lists
+        self.NOT_ALLOWED_QUERIES = not_allowed_queries if not_allowed_queries is not None else []
+        self.NOT_ALLOWED_ITEMS = not_allowed_items if not_allowed_items is not None else []
+        self.NOT_ALLOWED_TABLES = not_allowed_tables if not_allowed_tables is not None else []
+        self.NOT_ALLOWED_CONNECTIONS = not_allowed_connections if not_allowed_connections is not None else []
+        self.NOT_ALLOWED_COLUMNS = not_allowed_columns if not_allowed_columns is not None else []
 
         self.LOGICAL = ("AND", "OR")
-        self.COMPARISON = ("=", ">", "<", ">=", "<=", "<>","!=")
+        self.COMPARISON = ("=", ">", "<", ">=", "<=", "<>", "!=")
         self.SPECIAL_COMPARISON = ("BETWEEN", "IN")
-        self.AGGREGATES = ("MIN", "MAX","SUM","AVG","COUNT")
+        self.AGGREGATES = ("MIN", "MAX", "SUM", "AVG", "COUNT")
 
-    def make_aggregate(self, aggregate:dict, param:bool=False) -> tuple[str, any]:
-        return f"{list(aggregate)[0]}({aggregate[list(aggregate)[0]] if not param else '?'})", aggregate[list(aggregate)[0]]
+    def _is_entity_allowed(
+        self,
+        entity: str,
+        allowed_list: List[str],
+        not_allowed_list: List[str]
+    ) -> bool:
+        """Check if an entity is allowed based on whitelist and blacklist rules.
 
-    def is_another_column(self, value:str) -> bool:
-        try:
-            return value in self.ALLOWED_COLUMNS
-        except TypeError:
+        Validation logic:
+        1. If entity is in not_allowed_list → DENY (blacklist takes precedence)
+        2. If allowed_list is empty → DENY (strict mode)
+        3. If allowed_list contains "*" → ALLOW (wildcard mode)
+        4. If entity is in allowed_list → ALLOW
+        5. Otherwise → DENY
+
+        Args:
+            entity (str): The entity to validate (e.g., table name, query type).
+            allowed_list (List[str]): List of allowed entities or ["*"] for wildcard.
+            not_allowed_list (List[str]): List of explicitly forbidden entities.
+
+        Returns:
+            bool: True if entity is allowed, False otherwise.
+        """
+        # Check blacklist first (takes precedence)
+        if entity in not_allowed_list:
             return False
-    
-    def is_valid_aggregate(self, aggregate:dict) -> bool:
+
+        # Strict mode: empty allowed list means nothing is allowed
+        if not allowed_list:
+            return False
+
+        # Wildcard mode: "*" allows everything (except blacklisted)
+        if "*" in allowed_list:
+            return True
+
+        # Explicit whitelist check
+        return entity in allowed_list
+
+    def _is_column_allowed(self, column: str) -> bool:
+        """Check if a column is allowed based on column-specific rules.
+
+        Args:
+            column (str): The column name to validate.
+
+        Returns:
+            bool: True if column is allowed, False otherwise.
+        """
+        # Check blacklist first
+        if column in self.NOT_ALLOWED_COLUMNS:
+            return False
+
+        # Strict mode: empty allowed columns means nothing is allowed
+        if not self.ALLOWED_COLUMNS:
+            return False
+
+        # Wildcard mode: "*" key allows all columns
+        if "*" in self.ALLOWED_COLUMNS:
+            return True
+
+        # Explicit column check
+        return column in self.ALLOWED_COLUMNS
+
+    def make_aggregate(self, aggregate: dict, param: bool = False) -> tuple[str, any]:
+        key = list(aggregate)[0]
+        value = aggregate[key] if not param else '?'
+        return f"{key}({value})", aggregate[key]
+
+    def is_another_column(self, value: str) -> bool:
+        """Check if a value represents another column name.
+
+        This method determines if a value should be treated as a column reference
+        rather than a literal value. With wildcard columns, we need to be more
+        careful to avoid treating all strings as column references.
+
+        Args:
+            value (str): The value to check.
+
+        Returns:
+            bool: True if value is an allowed column name, False otherwise.
+        """
+        try:
+            # If we don't have wildcard columns, use the original logic
+            if "*" not in self.ALLOWED_COLUMNS:
+                return self._is_column_allowed(value)
+
+            # With wildcard columns, only treat as column if explicitly listed
+            # or if it's not blacklisted and looks like a column name
+            if value in self.NOT_ALLOWED_COLUMNS:
+                return False
+
+            # If we have explicit columns defined alongside wildcard, check those first
+            explicit_columns = {k: v for k,
+                                v in self.ALLOWED_COLUMNS.items() if k != "*"}
+            if explicit_columns and value in explicit_columns:
+                return True
+
+            # For wildcard mode, we're more conservative - only treat as column
+            # if it doesn't look like a typical literal value
+            # This is a heuristic: values that are purely numeric, contain spaces,
+            # or are common literal patterns are treated as literals
+            if (value.isdigit() or
+                ' ' in value or
+                value.lower() in ['true', 'false', 'null'] or
+                (value.startswith('"') and value.endswith('"')) or
+                    (value.startswith("'") and value.endswith("'"))):
+                return False
+
+            # If we reach here with wildcard columns, treat as potential column
+            return True
+
+        except (TypeError, AttributeError):
+            return False
+
+    def is_valid_aggregate(self, aggregate: dict) -> bool:
         if not isinstance(aggregate, dict):
             return False
-        
+
         operation = list(aggregate)[0]
         value = aggregate[operation]
         if operation not in self.AGGREGATES:
             return False
-        
+
         return self.is_another_column(value)
-    
-    def is_valid_value(self, value:any, valuetype:any) -> bool:
+
+    def is_valid_value(self, value: any, valuetype: any) -> bool:
         if isinstance(value, dict):
             return self.is_valid_aggregate(value)
         elif not isinstance(value, list) and self.is_another_column(value):
             return True
         return isinstance(value, valuetype)
 
-    def is_special_comparison(self, comparator:str, value: any, valuetype: any) -> bool:
+    def is_special_comparison(self, comparator: str, value: any, valuetype: any) -> bool:
         """Checks if a comparator and value match the special comparison operators.
-    
-        Special comparison operators include BETWEEN and IN. This checks if the 
+
+        Special comparison operators include BETWEEN and IN. This checks if the
         comparator is one of those, and if the value matches the expected format.
-        
+
         Args:
             comparator (str): The comparison operator.
             value: The comparison value.
             valuetype: The expected type of the comparison value.
-        
+
         Returns:
             bool: True if it is a valid special comparison, False otherwise.
         """
         def all_values_allowed(value, valuetype):
             """Checks if all values in a list are of the specified type.
-        
+
             Args:
                 value (list): The list of values to check.
                 valuetype: The expected type of each value.
-            
+
             Returns:
                 bool: True if all values match the expected type, False otherwise.
             """
             valid = True
             for entry in value:
-                if not self.is_valid_value(entry,valuetype):
+                if not self.is_valid_value(entry, valuetype):
                     valid = False
                     break
             return valid
 
         if not isinstance(value, list) or not all_values_allowed(value, valuetype):
             return False
-        
+
         if comparator == "BETWEEN" and len(value) == 2:
             return True
 
         elif comparator == "IN" and len(value) > 0:
             return True
-        
+
         return False
 
-    def is_valid_comparison(self, column:str, comparison:dict) -> bool:
+    def is_valid_comparison(self, column: str, comparison: dict) -> bool:
         """Checks if a comparison operator and value are valid for a column.
-        
-        Validates that the comparator is a valid operator, and the value is the 
+
+        Validates that the comparator is a valid operator, and the value is the
         expected type for the column or a valid special comparison.
-        
+
         Args:
             column (str): The column name.
             comparison (dict): The comparison operator and value.
-        
+
         Returns:
             bool: True if the comparison is valid, False otherwise.
         """
         comparator = list(comparison)[0]
 
-        if comparator not in self.COMPARISON and comparator not in self.SPECIAL_COMPARISON:
+        if (comparator not in self.COMPARISON and
+                comparator not in self.SPECIAL_COMPARISON):
             return False
-        
+
         value = comparison[comparator]
-        if self.is_valid_value(value, self.ALLOWED_COLUMNS[column]) or self.is_special_comparison(comparator, value, self.ALLOWED_COLUMNS[column]):
+        column_type = self.ALLOWED_COLUMNS.get(
+            column, self.ALLOWED_COLUMNS.get("*", object))
+        if (self.is_valid_value(value, column_type) or
+                self.is_special_comparison(comparator, value, column_type)):
             return True
         return False
 
     def logic_parse(self, json_input: dict) -> tuple[Literal[False], str] | tuple[Literal[True], str, tuple]:
         if len(json_input) == 0:
             return False, "Nothing To Compute"
-        
+
         value: str = list(json_input.keys())[0]
-        
-        if value not in self.ALLOWED_COLUMNS and value not in self.LOGICAL and value not in self.SPECIAL_COMPARISON and value not in self.COMPARISON:
+
+        # Check if value is a valid column, logical operator, or comparison operator
+        is_valid_column = self._is_column_allowed(value)
+        is_logical_operator = value in self.LOGICAL
+        is_comparison_operator = (value in self.SPECIAL_COMPARISON or
+                                  value in self.COMPARISON)
+
+        if not (is_valid_column or is_logical_operator or is_comparison_operator):
             return False, f"Invalid Input - {value}"
-        
-        elif value in self.LOGICAL and not isinstance(json_input[value], list):
+
+        elif is_logical_operator and not isinstance(json_input[value], list):
             return False, f"Bad {value}, non list"
 
-        elif (value in self.ALLOWED_COLUMNS and not self.is_valid_comparison(value,json_input[value])):
-            if isinstance(json_input[value],dict):
+        elif (is_valid_column and not self.is_valid_comparison(value, json_input[value])):
+            if isinstance(json_input[value], dict):
                 value0 = list(json_input[value])[0]
                 if value0 not in self.COMPARISON and value0 not in self.SPECIAL_COMPARISON:
                     return False, f"Non Valid comparitor - {value0}"
-            return False, f"Bad {value}, non {self.ALLOWED_COLUMNS[value]}"
+            # Get the expected type for the column
+            expected_type = self.ALLOWED_COLUMNS.get(
+                value, self.ALLOWED_COLUMNS.get("*", object))
+            return False, f"Bad {value}, non {expected_type}"
 
         if self.is_valid_comparison(value, json_input[value]):
             comparator = list(json_input[value])[0]
-            if comparator in self.COMPARISON and not self.is_another_column(json_input[value][comparator]) and not isinstance(json_input[value][comparator],dict):
-                return True, f"{value} {comparator if comparator != '!=' else '<>'} ?", json_input[value][comparator] if isinstance(json_input[value][comparator], tuple) else (json_input[value][comparator],)
+            if (comparator in self.COMPARISON and
+                    not self.is_another_column(json_input[value][comparator]) and
+                    not isinstance(json_input[value][comparator], dict)):
+                param_val = json_input[value][comparator]
+                params = param_val if isinstance(
+                    param_val, tuple) else (param_val,)
+                op = '<>' if comparator == '!=' else comparator
+                return True, f"{value} {op} ?", params
 
-            elif comparator in self.COMPARISON and self.is_another_column(json_input[value][comparator]):
-                return True, f"{value} {comparator if comparator != '!=' else '<>'} {json_input[value][comparator]}", ()
-            
+            elif (comparator in self.COMPARISON and
+                    self.is_another_column(json_input[value][comparator])):
+                op = '<>' if comparator == '!=' else comparator
+                return True, f"{value} {op} {json_input[value][comparator]}", ()
+
             elif list(json_input[value][comparator])[0] in self.AGGREGATES:
-                return True, f"{value} {comparator if comparator != '!=' else '<>'} {list(json_input[value][comparator])[0]}({json_input[value][comparator][list(json_input[value][comparator])[0]]})", ()
+                agg_dict = json_input[value][comparator]
+                agg_func = list(agg_dict)[0]
+                agg_col = agg_dict[agg_func]
+                op = '<>' if comparator == '!=' else comparator
+                return True, f"{value} {op} {agg_func}({agg_col})", ()
 
             elif comparator in self.SPECIAL_COMPARISON:
                 if comparator == "BETWEEN":
                     return True, f"{value} BETWEEN ? AND ?", tuple(json_input[value][comparator])
 
                 elif comparator == "IN":
-                    return True, f"{value} IN ({'?' if len(json_input[value][comparator]) == 1 else ('?,'*len(json_input[value][comparator]))[:-1]})", tuple(json_input[value][comparator])
+                    vals = json_input[value][comparator]
+                    placeholders = '?' if len(
+                        vals) == 1 else ('?,' * len(vals))[:-1]
+                    return True, f"{value} IN ({placeholders})", tuple(vals)
 
             return False, f"Comparitor Error - {comparator}"
-        
+
         elif value in self.LOGICAL and isinstance(json_input[value], list):
             if len(json_input[value]) < 2:
                 return False, "Invalid boolean length, must be >= 2"
-            
+
             data = []
             safe = (True, "")
             for case in json_input[value]:
@@ -174,7 +342,7 @@ class JsonSQL():
             params = []
             output = []
             for entry in data:
-                if isinstance(entry[1],tuple):
+                if isinstance(entry[1], tuple):
                     for sub in entry[1]:
                         params.append(sub)
                 else:
@@ -185,44 +353,73 @@ class JsonSQL():
 
             data = f"({f' {value.upper()} '.join(output)})"
 
-            return True, data, params if isinstance(params,tuple) else (params,)
+            return True, data, params if isinstance(params, tuple) else (params,)
 
-        
-    def sql_parse(self, json_input: dict) -> tuple[Literal[False],str] | tuple[Literal[True], str, tuple]:
-        required_inputs: dict = {"query":str, "items":list, "table":str}
+    def sql_parse(self, json_input: dict) -> tuple[Literal[False], str] | tuple[Literal[True], str, tuple]:
+        required_inputs: dict = {"query": str, "items": list, "table": str}
         for item in required_inputs:
             if item not in json_input and item != "connection":
                 return False, f"Missing argument {item}"
-            elif not isinstance(json_input[item],required_inputs[item]):
+            elif not isinstance(json_input[item], required_inputs[item]):
                 return False, f"{item} not right type, {required_inputs[item]}"
-            
-        if json_input["query"] not in self.ALLOWED_QUERIES:
+
+        # Validate query type using new validation system
+        if not self._is_entity_allowed(
+            json_input["query"],
+            self.ALLOWED_QUERIES,
+            self.NOT_ALLOWED_QUERIES
+        ):
             return False, f"Query not allowed - {json_input['query']}"
 
-        for item in range(len(json_input["items"])):
-            if json_input["items"][item] not in self.ALLOWED_ITEMS and not (isinstance(json_input["items"][item], dict) and list(json_input["items"][item])[0] in self.AGGREGATES):
-                return False, f"Item not allowed - {json_input['items'][item]}"
-            elif isinstance(json_input["items"][item], dict) and list(json_input["items"][item])[0] in self.AGGREGATES:
-                if json_input["items"][item][list(json_input["items"][item])[0]] in self.ALLOWED_ITEMS:
-                    json_input["items"][item] = f"{list(json_input['items'][item])[0]}({json_input['items'][item][list(json_input['items'][item])[0]]})"
-                else:
-                    return False, f"Item not allowed - {json_input['items'][item][list(json_input['items'][item])[0]]}"
+        # Validate items using new validation system
+        for item_index in range(len(json_input["items"])):
+            current_item = json_input["items"][item_index]
 
-               
-        if json_input["table"] not in self.ALLOWED_TABLES:
-            return False, f"Table not allowed - {json_input['table']}"        
+            # Handle aggregate functions
+            if isinstance(current_item, dict) and list(current_item)[0] in self.AGGREGATES:
+                aggregate_column = current_item[list(current_item)[0]]
+                if not self._is_entity_allowed(
+                    aggregate_column,
+                    self.ALLOWED_ITEMS,
+                    self.NOT_ALLOWED_ITEMS
+                ):
+                    return False, f"Item not allowed - {aggregate_column}"
+                # Convert aggregate to string format
+                json_input["items"][item_index] = f"{list(current_item)[0]}({aggregate_column})"
+            else:
+                # Handle regular items
+                if not self._is_entity_allowed(
+                    current_item,
+                    self.ALLOWED_ITEMS,
+                    self.NOT_ALLOWED_ITEMS
+                ):
+                    return False, f"Item not allowed - {current_item}"
 
-        
-        if "connection" in json_input and json_input["connection"] not in self.ALLOWED_CONNECTIONS:
+        # Validate table using new validation system
+        if not self._is_entity_allowed(
+            json_input["table"],
+            self.ALLOWED_TABLES,
+            self.NOT_ALLOWED_TABLES
+        ):
+            return False, f"Table not allowed - {json_input['table']}"
+
+        # Validate connection if present
+        if "connection" in json_input and not self._is_entity_allowed(
+            json_input["connection"],
+            self.ALLOWED_CONNECTIONS,
+            self.NOT_ALLOWED_CONNECTIONS
+        ):
             return False, f"Connection not allowed - {json_input['connection']}"
-        
+
         sql_string = f"{json_input['query']} {','.join(json_input['items'])} FROM {json_input['table']}"
 
         if "logic" in json_input:
             logic_string = self.logic_parse(json_input["logic"])
             if not logic_string[0]:
                 return False, f"Logic Fail - {logic_string[1]}"
-            
-            return True, f"{sql_string} {json_input['connection']} {logic_string[1]}", logic_string[2] if isinstance(logic_string[2], tuple) else (logic_string[2],)
-        
+
+            params = logic_string[2] if isinstance(
+                logic_string[2], tuple) else (logic_string[2],)
+            return True, f"{sql_string} {json_input['connection']} {logic_string[1]}", params
+
         return True, sql_string, ()
