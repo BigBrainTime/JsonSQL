@@ -1,0 +1,7 @@
+group by
+joins
+order by
+sub queries
+window functions
+ctes
+non-aggregation related functions
